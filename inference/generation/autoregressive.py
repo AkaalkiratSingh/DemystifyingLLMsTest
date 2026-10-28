@@ -1,6 +1,7 @@
 """Module implementation."""
 import torch
-from typing import Optional, List, Callable
+import inspect
+from typing import Optional, Callable, Sequence, Union
 from .kv_cache import KVCache
 from .stop_criteria import StopCriteria
 
@@ -9,45 +10,75 @@ def autoregressive_generate(
     model: torch.nn.Module,
     input_ids: torch.Tensor,
     max_new_tokens: int = 20,
-    eos_token_id: Optional[int] = None,
+    eos_token_id: Optional[Union[int, Sequence[int]]] = None,
     sampler_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    sampler_with_history: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
     use_cache: bool = False,
 ) -> torch.Tensor:
     """
     Generate tokens autoregressively.
     input_ids shape: (batch_size, seq_len)
     """
+    if input_ids.dim() != 2 or input_ids.size(1) == 0:
+        raise ValueError("input_ids must have shape (batch_size, non-empty sequence length)")
+    if max_new_tokens < 0:
+        raise ValueError("max_new_tokens must be non-negative")
     generated = input_ids.clone()
     batch_size = generated.size(0)
     stop_criteria = StopCriteria(max_length=generated.size(1) + max_new_tokens, eos_token_id=eos_token_id)
+    stop_ids = set(eos_token_id if isinstance(eos_token_id, (list, tuple, set))
+                   else (() if eos_token_id is None else (eos_token_id,)))
+    finished = torch.zeros(batch_size, dtype=torch.bool, device=generated.device)
 
-    kv_cache = KVCache(num_layers=getattr(model, "num_layers", 12)) if use_cache else None
+    supports_cache = False
+    if use_cache:
+        forward = model.forward if hasattr(model, "forward") else model
+        try:
+            parameters = inspect.signature(forward).parameters.values()
+            supports_cache = any(
+                parameter.name == "kv_cache" or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters
+            )
+        except (TypeError, ValueError):
+            supports_cache = False
+    kv_cache = (
+        KVCache(num_layers=getattr(model, "num_layers", 12))
+        if supports_cache else None
+    )
 
-    for _ in range(max_new_tokens):
-        if kv_cache is not None:
-            model_inputs = generated
-            logits = model(model_inputs, kv_cache=kv_cache)
-        else:
-            logits = model(generated)
+    with torch.no_grad():
+        for _ in range(max_new_tokens):
+            if kv_cache is not None:
+                model_inputs = generated if kv_cache.get_seq_length() == 0 else generated[:, -1:]
+                logits = model(model_inputs, kv_cache=kv_cache)
+            else:
+                logits = model(generated)
 
-        # Take logits for the last token position: (batch_size, vocab_size)
-        if isinstance(logits, tuple):
-            logits = logits[0]
-        next_token_logits = logits[:, -1, :]
+            # Take logits for the last token position: (batch_size, vocab_size)
+            if isinstance(logits, tuple):
+                logits = logits[0]
+            next_token_logits = logits[:, -1, :]
 
-        if sampler_fn is not None:
-            next_token = sampler_fn(next_token_logits)
-        else:
-            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+            if sampler_with_history is not None:
+                next_token = sampler_with_history(next_token_logits, generated)
+            elif sampler_fn is not None:
+                next_token = sampler_fn(next_token_logits)
+            else:
+                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
 
-        if next_token.dim() == 1:
-            next_token = next_token.unsqueeze(-1)
+            if next_token.dim() == 1:
+                next_token = next_token.unsqueeze(-1)
 
-        # generated = torch.cat([generated, next_token], dim=-1) is correct
-        generated = torch.cat([next_token, generated], dim=-1)
+            if stop_ids:
+                if finished.any():
+                    next_token[finished] = min(stop_ids)
+                finished |= torch.stack(
+                    [next_token.squeeze(-1) == token_id for token_id in stop_ids], dim=0
+                ).any(dim=0)
 
-        last_id = next_token[0].item() if batch_size == 1 else None
-        if stop_criteria.should_stop(generated.size(1), last_id):
-            break
+            generated = torch.cat([generated, next_token], dim=-1)
+
+            if stop_criteria.should_stop(generated.size(1)) or (stop_ids and finished.all()):
+                break
 
     return generated

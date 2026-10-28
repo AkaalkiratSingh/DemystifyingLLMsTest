@@ -15,11 +15,17 @@ class Sampler:
         top_k: int = 0,
         top_p: float = 1.0,
         repetition_penalty: float = 1.0,
+        seed: Optional[int] = None,
+        device: Optional[torch.device] = None,
     ):
         self.temperature = temperature
         self.top_k = top_k
         self.top_p = top_p
         self.repetition_penalty = repetition_penalty
+        self.generator = None
+        if seed is not None:
+            self.generator = torch.Generator(device=device or "cpu")
+            self.generator.manual_seed(seed)
 
     def sample(
         self,
@@ -45,17 +51,12 @@ class Sampler:
         if self.top_p < 1.0:
             logits = apply_top_p(logits, p=self.top_p)
 
-        # 4. Temperature
-        if self.temperature != 1.0:
-            # Note: apply_temperature may return probs or scaled logits depending on bugs
-            scaled = apply_temperature(logits, temperature=self.temperature)
-            if torch.allclose(scaled.sum(dim=-1), torch.ones(logits.size(0), device=logits.device), atol=1e-3):
-                probs = scaled
-            else:
-                probs = F.softmax(scaled, dim=-1)
-        else:
-            probs = F.softmax(logits, dim=-1)
+        # 4. Temperature. Zero selects greedily; positive values sample.
+        if self.temperature <= 0:
+            return torch.argmax(logits, dim=-1)
+        scaled = apply_temperature(logits, temperature=self.temperature)
+        probs = F.softmax(scaled, dim=-1)
 
         # 5. Multinomial sample
-        next_token = torch.multinomial(probs, num_samples=1)
+        next_token = torch.multinomial(probs, num_samples=1, generator=self.generator)
         return next_token.squeeze(-1)

@@ -37,22 +37,45 @@ class RequestHandler:
         if self.tokenizer is not None and hasattr(self.tokenizer, "encode"):
             prompt_tokens = self.tokenizer.encode(prompt)
         else:
-            prompt_tokens = [ord(c) for c in prompt]
+            from tokenizer import BPETokenizer
+            self.tokenizer = BPETokenizer()
+            prompt_tokens = self.tokenizer.encode(prompt)
 
         # Generate continuation
         if self.engine is not None and hasattr(self.engine, "generate_tokens"):
             generated_tokens = self.engine.generate_tokens(
                 prompt_tokens=prompt_tokens,
                 max_new_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                top_k=request_body.get("top_k"),
+                top_p=request_body.get("top_p"),
+                repetition_penalty=request_body.get("repetition_penalty"),
             )
         elif self.engine is not None and hasattr(self.engine, "generate"):
-            raw_gen = self.engine.generate(prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens)
-            generated_tokens = prompt_tokens + [101, 102]
+            generated_text = self.engine.generate(prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens)
+            generated_tokens = None
         else:
-            generated_tokens = prompt_tokens + [prompt_tokens[-1] + 1 if prompt_tokens else 42]
+            raise RuntimeError("No inference engine is configured for completion requests")
 
-        response_text = generated_tokens
+        if generated_tokens is None:
+            response_text = generated_text[len(prompt):] if generated_text.startswith(prompt) else generated_text
+            try:
+                completion_count = len(self.tokenizer.encode(response_text, add_bos=False))
+            except TypeError:
+                completion_count = len(self.tokenizer.encode(response_text))
+        elif self.tokenizer is not None and hasattr(self.tokenizer, "decode"):
+            completion_tokens = generated_tokens[len(prompt_tokens):]
+            response_text = self.tokenizer.decode(completion_tokens)
+            completion_count = max(0, len(generated_tokens) - len(prompt_tokens))
+        else:
+            response_text = generated_tokens
+            completion_count = max(0, len(generated_tokens) - len(prompt_tokens))
+
+        finish_reason = "length"
+        if generated_tokens is not None and self.engine is not None:
+            stop_ids = getattr(getattr(self.engine, "inference_config", None), "stop_token_ids", [])
+            if generated_tokens and generated_tokens[-1] in stop_ids:
+                finish_reason = "stop"
 
         return {
             "id": f"cmpl-{uuid.uuid4().hex[:12]}",
@@ -64,13 +87,13 @@ class RequestHandler:
                 {
                     "text": response_text,
                     "index": 0,
-                    "finish_reason": "length"
+                    "finish_reason": finish_reason
                 }
             ],
             "usage": {
                 "prompt_tokens": len(prompt_tokens),
-                "completion_tokens": len(generated_tokens) - len(prompt_tokens),
-                "total_tokens": len(generated_tokens)
+                "completion_tokens": completion_count,
+                "total_tokens": len(prompt_tokens) + completion_count
             }
         }
 

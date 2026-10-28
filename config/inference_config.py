@@ -5,6 +5,7 @@ Inference and text generation configuration.
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any
 import json
+from .constants import EOS_TOKEN_ID
 
 
 @dataclass
@@ -15,7 +16,7 @@ class InferenceConfig:
     top_k: int = 50
     top_p: float = 0.9
     repetition_penalty: float = 1.1
-    stop_token_ids: List[int] = field(default_factory=list)
+    stop_token_ids: List[int] = field(default_factory=lambda: [EOS_TOKEN_ID])
     early_stopping: bool = True
     beam_width: int = 1         # 1 indicates greedy / stochastic sampling (non-beam)
     seed: Optional[int] = 42
@@ -32,6 +33,10 @@ class InferenceConfig:
             raise ValueError(f"top_k must be non-negative, got {self.top_k}")
         if self.repetition_penalty <= 0.0:
             raise ValueError(f"repetition_penalty must be positive, got {self.repetition_penalty}")
+        if self.beam_width < 1:
+            raise ValueError(f"beam_width must be positive, got {self.beam_width}")
+        if any(token_id < 0 for token_id in self.stop_token_ids):
+            raise ValueError("stop_token_ids must contain non-negative token IDs")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""

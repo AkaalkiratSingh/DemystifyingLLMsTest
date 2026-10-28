@@ -83,10 +83,10 @@ class RequestHandler:
                 repetition_penalty=repetition_penalty,
             )
         elif self.engine is not None and hasattr(self.engine, "generate"):
+            # Keep compatibility with text-only engines that expose the
+            # original generate(prompt, tokenizer, max_new_tokens) contract.
             generated_text = self.engine.generate(
-                prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens,
-                temperature=temperature, top_k=top_k, top_p=top_p,
-                repetition_penalty=repetition_penalty
+                prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens
             )
             generated_tokens = None
         else:

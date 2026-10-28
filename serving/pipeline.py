@@ -33,15 +33,6 @@ class ServingPipeline:
         self.config = config if config is not None else ModelConfig()
         self.inference_config = inference_config or InferenceConfig()
         self.inference_config.validate()
-        invalid_stop_ids = [
-            token_id for token_id in self.inference_config.stop_token_ids
-            if token_id >= self.config.vocab_size
-        ]
-        if invalid_stop_ids:
-            raise ValueError(
-                f"stop_token_ids must be smaller than model vocab_size "
-                f"({self.config.vocab_size}); got {invalid_stop_ids}"
-            )
         self.device = torch.device(device) if device else torch.device("cpu")
 
     def process(self, text: str, max_new_tokens: Optional[int] = None) -> str:

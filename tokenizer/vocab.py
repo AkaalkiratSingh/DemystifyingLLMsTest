@@ -58,5 +58,10 @@ class Vocabulary:
     def __len__(self) -> int:
         return len(self._token_to_id)
 
+    @property
+    def size(self) -> int:
+        """Minimum embedding-table size able to represent every assigned token ID."""
+        return max(self._id_to_token, default=-1) + 1
+
     def __contains__(self, token: str) -> bool:
         return token in self._token_to_id or token in Vocabulary._shared_vocab

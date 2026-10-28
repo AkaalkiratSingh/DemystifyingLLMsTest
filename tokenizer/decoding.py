@@ -7,7 +7,15 @@ from .special_tokens import SPECIAL_TOKENS
 def decode(ids: List[int], vocab: Optional[Vocabulary] = None, skip_special_tokens: bool = True) -> str:
     """
     Decode token IDs back to a string.
+
+    Accepts any iterable of IDs, including 1-D or 2-D tensors (flattened in
+    row-major order).
     """
+    if hasattr(ids, "detach"):
+        ids = ids.detach().cpu().reshape(-1).tolist()
+    elif not isinstance(ids, (list, tuple)):
+        ids = list(ids)
+
     if vocab is None:
         vocab = Vocabulary()
 

@@ -23,7 +23,7 @@ def initialize_seeded_weights(output_path: str = DEFAULT_WEIGHTS_PATH, seed: int
     """
     Generate deterministic starter weights for the transformer model.
     """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     torch.manual_seed(seed)
 
     config = ModelConfig()

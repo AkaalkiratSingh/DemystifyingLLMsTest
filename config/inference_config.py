@@ -5,7 +5,6 @@ Inference and text generation configuration.
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any
 import json
-import math
 
 
 @dataclass
@@ -16,8 +15,6 @@ class InferenceConfig:
     top_k: int = 50
     top_p: float = 0.9
     repetition_penalty: float = 1.1
-    # Do not assume the GPT-2 EOS ID for custom/small vocabularies. Callers
-    # that want EOS stopping can provide the model's actual stop-token IDs.
     stop_token_ids: List[int] = field(default_factory=list)
     early_stopping: bool = True
     beam_width: int = 1         # 1 indicates greedy / stochastic sampling (non-beam)
@@ -25,35 +22,16 @@ class InferenceConfig:
 
     def validate(self) -> None:
         """Validate inference parameters."""
-        if not isinstance(self.max_new_tokens, int) or isinstance(self.max_new_tokens, bool):
-            raise ValueError("max_new_tokens must be an integer")
         if self.max_new_tokens < 0:
             raise ValueError(f"max_new_tokens must be non-negative, got {self.max_new_tokens}")
-        if not math.isfinite(self.temperature):
-            raise ValueError("temperature must be finite")
         if self.temperature < 0.0:
             raise ValueError(f"temperature must be non-negative, got {self.temperature}")
-        if not math.isfinite(self.top_p):
-            raise ValueError("top_p must be finite")
         if not (0.0 <= self.top_p <= 1.0):
             raise ValueError(f"top_p must be in [0.0, 1.0], got {self.top_p}")
-        if not isinstance(self.top_k, int) or isinstance(self.top_k, bool):
-            raise ValueError("top_k must be an integer")
         if self.top_k < 0:
             raise ValueError(f"top_k must be non-negative, got {self.top_k}")
-        if not math.isfinite(self.repetition_penalty):
-            raise ValueError("repetition_penalty must be finite")
         if self.repetition_penalty <= 0.0:
             raise ValueError(f"repetition_penalty must be positive, got {self.repetition_penalty}")
-        if not isinstance(self.beam_width, int) or isinstance(self.beam_width, bool):
-            raise ValueError("beam_width must be an integer")
-        if self.beam_width < 1:
-            raise ValueError(f"beam_width must be positive, got {self.beam_width}")
-        if not isinstance(self.stop_token_ids, list) or any(
-            not isinstance(token_id, int) or isinstance(token_id, bool) or token_id < 0
-            for token_id in self.stop_token_ids
-        ):
-            raise ValueError("stop_token_ids must be a list of non-negative integer token IDs")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""

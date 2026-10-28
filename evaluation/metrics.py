@@ -44,10 +44,8 @@ def cross_entropy_loss(
         Scalar loss tensor.
     """
     vocab_size = logits.size(-1)
-    flat_logits = logits.reshape(-1, vocab_size)
-    flat_targets = targets.reshape(-1)
-    if not torch.any(flat_targets != ignore_index):
-        return flat_logits.sum() * 0.0
+    flat_logits = logits.view(-1, vocab_size)
+    flat_targets = targets.view(-1)
     return F.cross_entropy(flat_logits, flat_targets, ignore_index=ignore_index)
 
 
@@ -92,8 +90,6 @@ def repetition_rate(token_ids: Sequence[int], n: int = 3) -> float:
     Returns:
         Ratio of duplicate n-grams to total n-grams.
     """
-    if n <= 0:
-        raise ValueError("n must be positive")
     if len(token_ids) < n:
         return 0.0
 

@@ -21,6 +21,12 @@ class BeamSearch:
             else (() if eos_token_id is None else (eos_token_id,))
         )
 
+    @staticmethod
+    def _rank_score(candidate: Tuple[torch.Tensor, float]) -> float:
+        """Normalize cumulative log probability to avoid favoring short beams."""
+        sequence, log_probability = candidate
+        return log_probability / max(sequence.size(1), 1)
+
     def search(self, model: torch.nn.Module, input_ids: torch.Tensor) -> torch.Tensor:
         """
         Standard beam search implementation (red herring).
@@ -54,12 +60,12 @@ class BeamSearch:
                 if not new_candidates:
                     break
 
-                new_candidates.sort(key=lambda x: x[1], reverse=True)
+                new_candidates.sort(key=self._rank_score, reverse=True)
                 beams = new_candidates[:self.beam_width]
 
                 if len(completed) >= self.beam_width:
                     break
 
         all_candidates = completed + beams
-        all_candidates.sort(key=lambda x: x[1], reverse=True)
+        all_candidates.sort(key=self._rank_score, reverse=True)
         return all_candidates[0][0]

@@ -83,11 +83,15 @@ class InferenceEngine:
         """
         Generate a list of token IDs autoregressively from input token sequence.
         """
-        self._prepare_model()
-
         max_tokens = max_new_tokens if max_new_tokens is not None else self.inference_config.max_new_tokens
-        if max_tokens <= 0:
+        if max_tokens < 0:
+            raise ValueError(f"max_new_tokens must be non-negative, got {max_tokens}")
+        if not prompt_tokens:
+            raise ValueError("prompt_tokens must contain at least one token")
+        if max_tokens == 0:
             return list(prompt_tokens)
+
+        self._prepare_model()
 
         temp = temperature if temperature is not None else self.inference_config.temperature
         tokens = list(prompt_tokens)

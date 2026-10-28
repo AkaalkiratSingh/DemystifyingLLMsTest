@@ -7,7 +7,13 @@ class BPETokenizer:
     def __init__(self, vocab: Optional[Vocabulary] = None, merges: Optional[List[Tuple[str, str]]] = None):
         self.vocab = vocab or Vocabulary()
         self.merges: List[Tuple[str, str]] = merges or []
-        self.vocab_size = 50257
+
+    @property
+    def vocab_size(self) -> int:
+        # IDs can be sparse (the default GPT-2 special-token IDs are near the
+        # end of the vocabulary), so the usable embedding size is max_id + 1,
+        # not simply the number of entries in Vocabulary.
+        return self.vocab.size
 
     def _get_stats(self, pieces: List[str]) -> Dict[Tuple[str, str], int]:
         pairs: Dict[Tuple[str, str], int] = {}

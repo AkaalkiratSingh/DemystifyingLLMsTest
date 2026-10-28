@@ -26,6 +26,12 @@ class Vocabulary:
         return self.add_token(token)
 
     def add_token(self, token: str, idx: Optional[int] = None) -> int:
+        if not isinstance(token, str):
+            raise TypeError("token must be a string")
+        if idx is not None and (
+            not isinstance(idx, int) or isinstance(idx, bool) or idx < 0
+        ):
+            raise ValueError("token ID must be a non-negative integer")
         if token in self._token_to_id:
             return self._token_to_id[token]
         if idx is None:

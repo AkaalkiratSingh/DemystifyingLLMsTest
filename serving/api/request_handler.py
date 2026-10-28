@@ -4,10 +4,15 @@ HTTP API request parsing, validation, and execution handler.
 
 import time
 import uuid
+import math
 from typing import Dict, Any, Optional, List
 from utils.logging_utils import get_logger
 
 logger = get_logger("request_handler")
+
+
+class RequestValidationError(ValueError):
+    """Raised when a completion request contains invalid fields."""
 
 
 class RequestHandler:
@@ -29,9 +34,35 @@ class RequestHandler:
         Returns:
             Formatted response dictionary.
         """
+        if not isinstance(request_body, dict):
+            raise RequestValidationError("request body must be a JSON object")
+
         prompt = request_body.get("prompt", "")
         max_tokens = request_body.get("max_tokens", 16)
         temperature = request_body.get("temperature", 0.8)
+        top_k = request_body.get("top_k")
+        top_p = request_body.get("top_p")
+        repetition_penalty = request_body.get("repetition_penalty")
+
+        if not isinstance(prompt, str):
+            raise RequestValidationError("prompt must be a string")
+        if not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 0:
+            raise RequestValidationError("max_tokens must be a non-negative integer")
+        if not isinstance(temperature, (int, float)) or not math.isfinite(temperature) or temperature < 0:
+            raise RequestValidationError("temperature must be a finite non-negative number")
+        if top_k is not None and (
+            not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 0
+        ):
+            raise RequestValidationError("top_k must be a non-negative integer")
+        if top_p is not None and (
+            not isinstance(top_p, (int, float)) or not math.isfinite(top_p) or not 0 <= top_p <= 1
+        ):
+            raise RequestValidationError("top_p must be a finite number in [0, 1]")
+        if repetition_penalty is not None and (
+            not isinstance(repetition_penalty, (int, float))
+            or not math.isfinite(repetition_penalty) or repetition_penalty <= 0
+        ):
+            raise RequestValidationError("repetition_penalty must be a finite positive number")
 
         # Tokenize prompt
         if self.tokenizer is not None and hasattr(self.tokenizer, "encode"):
@@ -47,12 +78,16 @@ class RequestHandler:
                 prompt_tokens=prompt_tokens,
                 max_new_tokens=max_tokens,
                 temperature=temperature,
-                top_k=request_body.get("top_k"),
-                top_p=request_body.get("top_p"),
-                repetition_penalty=request_body.get("repetition_penalty"),
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
             )
         elif self.engine is not None and hasattr(self.engine, "generate"):
-            generated_text = self.engine.generate(prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens)
+            generated_text = self.engine.generate(
+                prompt, tokenizer=self.tokenizer, max_new_tokens=max_tokens,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                repetition_penalty=repetition_penalty
+            )
             generated_tokens = None
         else:
             raise RuntimeError("No inference engine is configured for completion requests")

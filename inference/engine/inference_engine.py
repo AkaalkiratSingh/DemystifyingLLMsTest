@@ -19,6 +19,8 @@ logger = get_logger("inference_engine")
 class FullTransformerModel(nn.Module):
     """Fallback modular transformer wrapper combining embeddings, blocks, and lm_head."""
 
+    supports_kv_cache = True
+
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
@@ -36,7 +38,8 @@ class FullTransformerModel(nn.Module):
     def forward(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
         kv_cache = kwargs.get("kv_cache")
         offset = kv_cache.get_seq_length() if kv_cache is not None else 0
-        h = self.embeddings(input_ids, offset=offset)
+        attention_mask = kwargs.get("attention_mask")
+        h = self.embeddings(input_ids, offset=offset, attention_mask=attention_mask)
         h = self.blocks(h, **kwargs)
         logits = self.lm_head(h)
         return logits
@@ -59,6 +62,15 @@ class InferenceEngine:
 
         self.inference_config = inference_config or InferenceConfig()
         self.inference_config.validate()
+        invalid_stop_ids = [
+            token_id for token_id in self.inference_config.stop_token_ids
+            if token_id >= self.model_config.vocab_size
+        ]
+        if invalid_stop_ids:
+            raise ValueError(
+                f"stop_token_ids must be smaller than model vocab_size "
+                f"({self.model_config.vocab_size}); got {invalid_stop_ids}"
+            )
         self.device = torch.device(device) if device else torch.device("cpu")
 
         self.model = model if model is not None else FullTransformerModel(self.model_config)

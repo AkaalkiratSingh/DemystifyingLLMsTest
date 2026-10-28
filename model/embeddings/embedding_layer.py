@@ -70,7 +70,8 @@ class EmbeddingLayer(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        offset: int = 0
+        offset: int = 0,
+        attention_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
         Embed token sequences and combine with positional encodings.
@@ -90,7 +91,19 @@ class EmbeddingLayer(nn.Module):
         if self.position_embedding is None:
             embeddings = tok_emb
         else:
-            pos_emb = self.position_embedding(seq_len=seq_len, offset=offset, device=input_ids.device)
+            position_ids = None
+            if attention_mask is not None:
+                if attention_mask.shape != input_ids.shape:
+                    raise ValueError("attention_mask must have the same shape as input_ids")
+                valid = attention_mask.to(device=input_ids.device, dtype=torch.bool)
+                position_ids = valid.long().cumsum(dim=-1) - 1
+                position_ids.masked_fill_(~valid, 0)
+                if offset:
+                    position_ids = position_ids + offset
+            pos_emb = self.position_embedding(
+                seq_len=seq_len, offset=offset, device=input_ids.device,
+                position_ids=position_ids
+            )
             embeddings = tok_emb + pos_emb.to(dtype=tok_emb.dtype)
 
         return self.dropout(embeddings)

@@ -49,6 +49,7 @@ class TransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         kv_cache: Optional[Any] = None
     ) -> torch.Tensor:
         """
@@ -62,6 +63,9 @@ class TransformerBlock(nn.Module):
         Returns:
             Output tensor of shape (batch_size, seq_len, d_model)
         """
-        h = self.resid1(x, self.attn(self.ln1(x), mask=mask, kv_cache=kv_cache, layer_idx=self.layer_idx))
+        h = self.resid1(x, self.attn(
+            self.ln1(x), mask=mask, attention_mask=attention_mask,
+            kv_cache=kv_cache, layer_idx=self.layer_idx
+        ))
         out = self.resid2(h, self.ffn(self.ln2(h)))
         return out

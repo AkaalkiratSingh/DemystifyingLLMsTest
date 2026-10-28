@@ -21,13 +21,23 @@ def autoregressive_generate(
     """
     if input_ids.dim() != 2 or input_ids.size(1) == 0:
         raise ValueError("input_ids must have shape (batch_size, non-empty sequence length)")
+    if input_ids.size(0) == 0:
+        raise ValueError("input_ids must contain at least one sequence")
+    if input_ids.dtype not in (torch.int32, torch.int64):
+        raise TypeError(f"input_ids must use an integer dtype, got {input_ids.dtype}")
+    if torch.any(input_ids < 0):
+        raise ValueError("input_ids must contain non-negative token IDs")
     if max_new_tokens < 0:
         raise ValueError("max_new_tokens must be non-negative")
+    eos_ids = (list(eos_token_id) if isinstance(eos_token_id, (list, tuple, set))
+               else ([] if eos_token_id is None else [eos_token_id]))
+    if any(not isinstance(token_id, int) or isinstance(token_id, bool) or token_id < 0
+           for token_id in eos_ids):
+        raise ValueError("eos_token_id values must be non-negative integers")
     generated = input_ids.clone()
     batch_size = generated.size(0)
     stop_criteria = StopCriteria(max_length=generated.size(1) + max_new_tokens, eos_token_id=eos_token_id)
-    stop_ids = set(eos_token_id if isinstance(eos_token_id, (list, tuple, set))
-                   else (() if eos_token_id is None else (eos_token_id,)))
+    stop_ids = set(eos_ids)
     finished = torch.zeros(batch_size, dtype=torch.bool, device=generated.device)
 
     supports_cache = False
@@ -36,11 +46,11 @@ def autoregressive_generate(
         try:
             parameters = inspect.signature(forward).parameters.values()
             supports_cache = any(
-                parameter.name == "kv_cache" or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                parameter.name == "kv_cache"
                 for parameter in parameters
-            )
+            ) or bool(getattr(model, "supports_kv_cache", False))
         except (TypeError, ValueError):
-            supports_cache = False
+            supports_cache = bool(getattr(model, "supports_kv_cache", False))
     kv_cache = (
         KVCache(num_layers=getattr(model, "num_layers", 12))
         if supports_cache else None
@@ -57,6 +67,13 @@ def autoregressive_generate(
             # Take logits for the last token position: (batch_size, vocab_size)
             if isinstance(logits, tuple):
                 logits = logits[0]
+            if not isinstance(logits, torch.Tensor) or logits.dim() != 3:
+                raise ValueError("model must return logits with shape (batch_size, seq_len, vocab_size)")
+            vocab_size = logits.size(-1)
+            if torch.any(generated >= vocab_size):
+                raise ValueError(f"input token IDs must be smaller than model vocabulary size {vocab_size}")
+            if any(token_id >= vocab_size for token_id in stop_ids):
+                raise ValueError(f"stop token IDs must be smaller than model vocabulary size {vocab_size}")
             next_token_logits = logits[:, -1, :]
 
             if sampler_with_history is not None:

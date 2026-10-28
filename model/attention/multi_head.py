@@ -67,6 +67,7 @@ class MultiHeadAttention(nn.Module):
         self,
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         kv_cache: Optional[Any] = None,
         layer_idx: Optional[int] = None,
         use_causal_mask: bool = True
@@ -103,6 +104,23 @@ class MultiHeadAttention(nn.Module):
             q, k = apply_rotary_pos_emb(q, k, cos, sin)
         if kv_cache is not None and layer_idx is not None:
             k, v = kv_cache.update(layer_idx, k, v)
+
+        # Convert a conventional 2D keep-mask (1/True = real token) to an
+        # additive key-padding mask. Keep it separate from ``mask``, whose
+        # public contract is already additive.
+        if attention_mask is not None:
+            if attention_mask.dim() != 2 or attention_mask.size(0) != batch_size:
+                raise ValueError("attention_mask must have shape (batch_size, key_len)")
+            if attention_mask.size(1) != k.size(-2):
+                raise ValueError(
+                    f"attention_mask key length ({attention_mask.size(1)}) must match "
+                    f"attention key length ({k.size(-2)})"
+                )
+            keep_keys = attention_mask.to(device=x.device, dtype=torch.bool)
+            padding_mask = torch.zeros(
+                (batch_size, 1, 1, k.size(-2)), device=x.device, dtype=x.dtype
+            ).masked_fill(~keep_keys[:, None, None, :], float("-inf"))
+            mask = padding_mask if mask is None else mask + padding_mask
 
         # 4. Prepare causal mask if needed
         if use_causal_mask:

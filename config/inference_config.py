@@ -6,18 +6,19 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any
 import json
 import math
-from .constants import EOS_TOKEN_ID
 
 
 @dataclass
 class InferenceConfig:
-    max_new_tokens: int = 0
+    max_new_tokens: int = 20
     use_kv_cache: bool = True
     temperature: float = 0.8
     top_k: int = 50
     top_p: float = 0.9
     repetition_penalty: float = 1.1
-    stop_token_ids: List[int] = field(default_factory=lambda: [EOS_TOKEN_ID])
+    # Do not assume the GPT-2 EOS ID for custom/small vocabularies. Callers
+    # that want EOS stopping can provide the model's actual stop-token IDs.
+    stop_token_ids: List[int] = field(default_factory=list)
     early_stopping: bool = True
     beam_width: int = 1         # 1 indicates greedy / stochastic sampling (non-beam)
     seed: Optional[int] = 42
